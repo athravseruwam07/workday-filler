@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { width: 440px; margin: 0; padding: 14px; font: 13px system-ui, sans-serif; background: #fff; color: #111; }
+  h1 { font-size: 15px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: baseline; }
+  #status { font-size: 12px; font-weight: normal; color: #2e7d32; }
+  .drop { border: 2px dashed #0b6bcb; border-radius: 8px; padding: 8px; background: #f5f9ff; }
+  .drop.over { background: #e3efff; }
+  .drop label { display: block; font-weight: 600; margin-bottom: 6px; }
+  textarea { width: 100%; height: 280px; box-sizing: border-box; font: 12px ui-monospace, monospace; border: 1px solid #c8d6e8; border-radius: 6px; padding: 6px; resize: vertical; }
+  .row { display: flex; gap: 8px; margin: 8px 0 0; align-items: center; flex-wrap: wrap; }
+  button { padding: 6px 12px; cursor: pointer; border: 1px solid #c8d6e8; background: #fff; border-radius: 6px; }
+  button.primary { background: #0b6bcb; color: #fff; border: 0; font-weight: 600; padding: 9px 16px; width: 100%; font-size: 14px; }
+  #summary { color: #555; margin: 8px 0; }
+  #file { display: none; }
+  #log { white-space: pre-wrap; max-height: 180px; overflow: auto; background: #f4f4f4; padding: 6px 8px; border-radius: 6px; display: none; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <h1>Workday Filler <span id="status"></span></h1>
+  <div class="drop" id="drop">
+    <label for="md">Paste your profile .md here (saves automatically)</label>
+    <textarea id="md" placeholder="Paste the whole .md here, or drop a file on this box"></textarea>
+    <div class="row">
+      <button id="paste">Paste from clipboard</button>
+      <button id="upload">Upload .md file</button>
+      <button id="clear">Clear</button>
+      <input type="file" id="file" accept=".md,.markdown,.txt">
+    </div>
+  </div>
+  <div id="summary"></div>
+  <button id="fill" class="primary">Fill this page</button>
+  <div id="log"></div>
+  <script src="parser.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
