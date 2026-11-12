@@ -52,6 +52,13 @@
     const v = c && c.querySelectorAll('.select__single-value, .select__multi-value, [class*="singleValue"], [class*="multiValue"]');
     return v ? [...v].map(x => x.textContent).join(' | ') : '';
   }
+  // multi-value react-select (e.g. a Skills question): one chip per item
+  const rsChips = el => {
+    const c = rsContainer(el);
+    const a = c ? [...c.querySelectorAll('.select__multi-value, [class*="multiValue"], [class*="multi-value"]')] : [];
+    return a.filter(x => !x.parentElement.closest('.select__multi-value, [class*="multiValue"], [class*="multi-value"]'));
+  };
+  const isMultiRS = el => { const c = rsContainer(el); return !!(c && c.querySelector('[class*="--is-multi"], .select__multi-value, [class*="multiValue"]')); };
   function rsOptions() {
     const a = [...document.querySelectorAll('.select__option, [role="option"], [id*="-option-"]')].filter(H().isVisible);
     return a.filter(o => !/^(loading|no options|no results)/i.test(o.textContent.trim()));
@@ -107,10 +114,52 @@
     return false;
   }
 
-  // ---- set any control from a text answer ----
-  async function setControl(el, value, label) {
+  // For a multi-select, pick exactly ONE option per item: the exact name, the same name with a plural
+  // "s" dropped/added, or one starting with it; otherwise the first whole-word match. Never more.
+  function pickOne(opts, text) {
+    const t = loose(text), sing = x => x.replace(/s\b/g, ''), ot = o => loose(o.textContent);
+    return opts.find(o => ot(o) === t) || opts.find(o => sing(ot(o)) === sing(t)) ||
+      opts.find(o => ot(o).startsWith(t + ' ')) || opts.find(o => H().hasSkill(o.textContent, text)) || null;
+  }
+  async function reactMultiSelect(el, value, L) {
     const h = H();
-    if (isRS(el)) return reactSelect(el, value);
+    const items = [...new Set(value.split(/\s*[,;]\s*/).map(x => x.trim()).filter(Boolean))];
+    const got = [], missing = [];
+    for (const item of items) {
+      const has = () => rsChips(el).some(c => h.hasSkill(c.textContent, item) || loose(c.textContent) === loose(item));
+      if (has()) { got.push(item); continue; }
+      const before = new Set(rsChips(el));
+      const grew = () => rsChips(el).some(c => !before.has(c));
+      // 1) script typing + one click
+      el.focus();
+      await h.typeInto(el, item);
+      let opts = await waitOpts(4000), pick = opts && pickOne(opts, item);
+      if (pick) { h.click(pick); await h.waitFor(grew, 1500); }
+      // 2) real keys, one Enter, only if nothing was added
+      if (!grew() && await h.cdpStart()) {
+        el.focus();
+        await h.tType(item);
+        opts = await waitOpts(4500); pick = opts && pickOne(opts, item);
+        if (pick) {
+          for (let i = 0; i < opts.indexOf(pick); i++) await h.tKey('ArrowDown');
+          await h.tKey('Enter');
+          await h.waitFor(grew, 1500);
+        }
+      }
+      // close the menu and clear leftover search text without touching chips
+      h.key(el, 'Escape', ['keydown', 'keyup']);
+      if (el.value) { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })); }
+      (grew() ? got : missing).push(item);
+      await h.sleep(150);
+    }
+    if (L && missing.length) L('warn', `No matching option (add by hand): ${missing.join(', ')}`);
+    return got.length > 0;
+  }
+
+  // ---- set any control from a text answer ----
+  async function setControl(el, value, label, L) {
+    const h = H();
+    if (isRS(el)) return isMultiRS(el) ? reactMultiSelect(el, value, L) : reactSelect(el, value);
     if (el.tagName === 'SELECT') return h.chooseOption(el, value);
     if (el.type === 'checkbox' || el.type === 'radio') {
       // a group: tick the boxes whose own label matches the answer(s)
@@ -261,7 +310,17 @@
       const tag = q.length > 50 ? q.slice(0, 50) + '...' : q;
       if (!f) { L('warn', `Question not on this form: "${tag}"`); continue; }
       used.add(f.el);
-      L(await setControl(f.el, a, f.label) ? 'ok' : 'warn', `${tag} -> ${a}`);
+      L(await setControl(f.el, a, f.label, L) ? 'ok' : 'warn', `${tag} -> ${a}`);
+    }
+
+    // Skills list from "## Skills", if the form has a skills question that no answer already filled
+    const skills = (profile.skills || []).filter(Boolean);
+    if (skills.length) {
+      const f = findField(document, /^skills?\b|technical skills|programming languages/, used);
+      if (f) {
+        used.add(f.el);
+        L(await setControl(f.el, skills.join(', '), f.label, L) ? 'ok' : 'warn', `Skills: ${skills.length} from your profile`);
+      }
     }
 
     // What is still empty and required

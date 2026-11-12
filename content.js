@@ -106,9 +106,10 @@
     return cdp([['Input.dispatchKeyEvent', down], ['Input.dispatchKeyEvent', { type: 'keyUp', key: name, code: name, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk }]]);
   };
   async function tType(text) {
-    await cdp([['Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: IS_MAC ? 4 : 2, commands: ['selectAll'] }],
+    const a = document.activeElement;
+    if (a && 'value' in a && a.value) await cdp([['Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: IS_MAC ? 4 : 2, commands: ['selectAll'] }],
                ['Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: IS_MAC ? 4 : 2 }]]);
-    await tKey('Backspace');
+    if (a && 'value' in a && a.value) await tKey('Backspace');
     for (const ch of text) {
       await cdp([['Input.dispatchKeyEvent', { type: 'keyDown', key: ch, text: ch, unmodifiedText: ch }],
                  ['Input.dispatchKeyEvent', { type: 'keyUp', key: ch }]]);
@@ -241,7 +242,11 @@
   async function multiAdd(root, text, inputEl, isDone) {
     const input = inputEl || (root.matches('input') ? root : root.querySelector('input[data-automation-id="searchBox"], input[type="text"], input:not([type])'));
     if (!input) return false;
-    const done = isDone || (() => chipsIn(root).some(c => hasSkill(c.textContent, text)));
+    // Done as soon as ONE new chip appears. Matching the chip text alone ("REST APIs" vs a chip called
+    // "REST API Design") made it retry and add option after option, flooding the box.
+    const before = new Set(chipsIn(root));
+    const added = () => chipsIn(root).some(c => !before.has(c));
+    const done = isDone ? (() => isDone() || added()) : (() => added() || chipsIn(root).some(c => hasSkill(c.textContent, text)));
     const clear = () => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(input, ''); input.dispatchEvent(new Event('input', { bubbles: true })); };
     const ready = () => done() ? 'done' : visibleOptions();
 
@@ -256,14 +261,16 @@
       click(pick);
       if (await waitFor(done, 1200)) return true;
       const cb = (pick.closest('[data-automation-id="promptLeafNode"]') || pick.parentElement).querySelector('[data-automation-id="checkboxPanel"], input[type="checkbox"]');
-      if (cb) { click(cb); if (await waitFor(done, 1000)) return true; }
+      if (cb && !cb.checked && !done()) { click(cb); if (await waitFor(done, 1000)) return true; }
+      if (done()) return true;
     }
     const firstTry = r ? `${r.length} options (${r.slice(0, 4).map(o => norm(o.textContent).slice(0, 30)).join(' | ')})` : 'no dropdown';
     key(input, 'Escape', ['keydown', 'keyup']);
     clear();
     await sleep(200);
 
-    // 2) real typing and clicking through the debugger
+    // 2) real typing and clicking through the debugger (only if nothing was added above)
+    if (done()) return true;
     if (await cdpStart()) {
       await tClick(input);
       await tType(text);
